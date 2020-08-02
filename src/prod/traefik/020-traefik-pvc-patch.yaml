@@ -1,0 +1,3 @@
+- op: add
+  path: "/spec/storageClassName"
+  value: do-block-storage

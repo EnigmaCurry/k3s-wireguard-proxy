@@ -1,0 +1,25 @@
+###############################
+# Middleware for basicAuth 
+###############################
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-basic-auth
+  namespace: kube-system
+spec:
+  basicAuth:
+    secret: traefik-authsecret
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-authsecret
+  namespace: kube-system
+
+#------------ Paste your own password file content here (default user/password=admin/adminadmin)--------------
+data:
+  users: |2
+    YWRtaW46JGFwcjEkWXdmLkF6Um0kc3owTkpQMi55cy56V2svek43aENtLwoKdXNl
+    cjokYXByMSRaU2VKQW1pOSRVV1AvcDdsQy9KSzdrbXBIMXdGL28uCgo=
