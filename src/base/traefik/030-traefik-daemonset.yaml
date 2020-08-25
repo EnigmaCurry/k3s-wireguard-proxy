@@ -55,7 +55,7 @@ spec:
         - --ping=true
         - --providers.kubernetescrd=true
         - --providers.kubernetesingress=true
-        - --certificatesresolvers.default.acme.storage=/var/lib/traefik/acme.json
+        - --certificatesresolvers.default.acme.storage=acme.json
         - --certificatesresolvers.default.acme.tlschallenge=true
 ---
 kind: Service

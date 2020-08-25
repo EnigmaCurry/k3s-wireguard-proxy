@@ -5,18 +5,28 @@ your local services to the cluster and/or internet.
 
 You can use this like a self-hosted ngrok.
 
+Due to the security concerns in running this, I have resisted the urge to
+automate this with a fancy wrapper script. Instead, I invite the active reader
+to follow along and understand the details outlined here.
+
 ## How it works
 
 Following this guide you will:
 
- * Configure and create a new single-node k3s cluster on DigitalOcean ($5/mo
-   droplet) utilizing [k3sup](https://github.com/alexellis/k3sup). You can also
-   use any existing kubernetes cluster.
+ * Configure and create a new single-node [k3s](https://k3s.io/) cluster on
+   DigitalOcean ($5/mo droplet) utilizing
+   [k3sup](https://github.com/alexellis/k3sup). Or, you can use any VPS provider
+   you like, you just need to be able to ssh as root for k3sup to work. You can
+   also use any existing kubernetes cluster. k3sup will automatically setup the
+   key on your local workstation for remote access with kubectl.
  * Install [kilo](https://github.com/squat/kilo), which creates a wireguard
    service inside your k3s cluster network.
  * Create a wireguard network interface on your local workstation.
- * Maintain your connection through
+ * Maintain your connection (enabled on boot) through
    [systemd-networkd](https://wiki.archlinux.org/index.php/Systemd-networkd)
+ * Create a Service and IngressRoutes that forwards from your internet domain to
+   your local workstation, running a web server, punching through NAT and
+   firewalls.
 
 ## Clone this repository on your workstation/laptop
 
@@ -46,13 +56,13 @@ apt-get update -y
 apt-get install -y wireguard wireguard-tools
 ``` 
  * Assign an SSH pubkey from your workstation/laptop. 
-  * If you haven't got one yet, click `New SSH Key` and follow the on-screen
-    directions.
+   * If you haven't got one yet, click `New SSH Key` and follow the on-screen
+     directions.
  * For this example, set the hostname to `k3s-wireguard`.
  * Finish creating the droplet.
  * Once created, assign a floating ip address to the droplet. (optional.)
  * Create domain name(s) and DNS that points to your droplet's (floating) ip address.
- * From your workstation, login to watch the cloud-init progress complete:
+ * From your workstation, ssh to the IP address, and watch the cloud-init progress complete:
 ```
 ssh root@<IP-address> cloud-init status -w
 ```
@@ -63,7 +73,7 @@ ssh root@<IP-address> cloud-init status -w
 Install kubectl:
  * Prefer your os packages:
    * Arch: `sudo pacman -S kubectl`
-   * Ubuntu: [See docs](https://kubernetes.io/docs/tasks/tools/install-kubectl/#install-using-native-package-management)
+   * Ubuntu and Other OS: [See docs](https://kubernetes.io/docs/tasks/tools/install-kubectl/#install-using-native-package-management)
  * Or this way:
 ```
 TMP=$(mktemp)
@@ -74,9 +84,12 @@ rm $TMP
    
 [Install k3sup](https://github.com/alexellis/k3sup#download-k3sup-tldr)
 
-`curl -sLS https://raw.githubusercontent.com/alexellis/k3sup/master/get.sh | sudo sh`
+```
+curl -sLS https://get.k3sup.dev | sh
+sudo install k3sup /usr/local/bin/
+```
 
-Create the cluster and config, run:
+Create the cluster:
 ```
 mkdir -p ${HOME}/.kube
 k3sup install --ip <IP_ADDRESS> --k3s-extra-args '--no-deploy traefik' --local-path ${HOME}/.kube/config
@@ -97,9 +110,10 @@ kubectl apply -f https://raw.githubusercontent.com/squat/kilo/master/manifests/k
 
 First make sure you are running a firewall locally, in order to to deny incoming
 connections by default. Enabling the default `ufw` settings will do this for
-you, but may have to install `ufw` first, and you must `enable` it:
+you, but may have to [install ufw](https://wiki.archlinux.org/index.php/Uncomplicated_Firewall) first, and then you must `enable` it:
 
 ```
+sudo systemctl enable --now ufw
 sudo ufw enable
 ```
 
@@ -128,10 +142,15 @@ spec:
 EOF
 ```
 
-Install `kgctl` command line tool:
+Install [kgctl](https://github.com/squat/kilo/blob/master/docs/kgctl.md) command line tool:
  * Install [go](https://golang.org/doc/install) and make sure `$HOME/go/bin` is
    in your `PATH` environment variable.
-   * In your `$HOME/.bash_profile` (or maybe `.bashrc` depending) put: `export PATH=$HOME/go/bin:$PATH`
+   * In your `$HOME/.bash_profile` (or maybe `.bashrc` depending) put: 
+
+```
+export PATH=$HOME/go/bin:$PATH
+```
+
  * Install `kgctl`:
 ```
 go get github.com/squat/kilo/cmd/kgctl
@@ -143,7 +162,11 @@ Get the peer configuration:
 kgctl --kubeconfig ${HOME}/.kube/config showconf peer ${USER}-${HOSTNAME} > /tmp/k3s-wireguard.ini
 ```
 
-Setup [systemd-networkd](https://wiki.archlinux.org/index.php/Systemd-networkd) on your workstation
+Setup [systemd-networkd](https://wiki.archlinux.org/index.php/Systemd-networkd) on your workstation, which you may need to install first. Then make sure its enabled:
+
+```
+sudo systemctl enable --now systemd-networkd
+```
 
 Setup systemd-networkd devices:
 
@@ -257,7 +280,7 @@ not stored in git. If you wish to commit them, remove this line from
 
 The `src/prod` directory is now your directory to make configuration changes. 
 
-Edit `src/prod/030-traefik-daemonset-patch.yaml`:
+Edit `src/prod/traefik/030-traefik-daemonset-patch.yaml`:
 
  * Choose the Lets Encrypt CA server for staging or prod. Use the
    `acme-staging-v02` until you are finished testing, but when you want to
@@ -265,8 +288,99 @@ Edit `src/prod/030-traefik-daemonset-patch.yaml`:
    Encrypt server.
  * Edit your email address for Lets Encrypt certificates
 
+Edit `src/prod/whoami/020-whoami-ingress-route-patch.yaml`:
+
+ * Change the domain for the whoami ingress
+
 Now apply the configuration to the cluster:
 
 ```
 kubectl apply -k src/prod/traefik
 ```
+
+Open your web broweser and test that you can reach the whoami service at the
+domain you chose. If using the staging Lets Encrypt server, the certificate
+won't be valid, but verify that the certificate is issued by `Fake LE
+Intermediate` to know if its working or not.
+
+## Create local HTTP server to expose to the internet
+
+For this example, we will again use
+[containous/whoami](https://github.com/containous/whoami) but this time running
+on your local workstation, and not inside a container. You can test with any
+other HTTP server if you have one running already.
+
+Install `whoami`:
+
+```
+go get github.com/containous/whoami
+go install github.com/containous/whoami
+```
+
+Open the firewall to allow access to port `8080`:
+
+```
+sudo ufw allow 8080 -name local
+```
+
+In another terminal/tab, start the service (Ctrl-c to quit) :
+
+```
+whoami -port 8080
+```
+
+You can test it works locally by opening your browser to
+[http://localhost:8080](http://localhost:8080)
+
+Create the Service on the cluster:
+
+```
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${USER}-${HOSTNAME}-whoami
+spec:
+  ports:
+    - port: 8080
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+    name: ${USER}-${HOSTNAME}-whoami
+subsets:
+  - addresses:
+      - ip: 10.5.0.1
+    ports:
+      - port: 8080
+EOF
+```
+
+Create the ingress route to expose to the internet, change the domain
+appropriately:
+
+```
+DOMAIN=whoami2.example.com
+
+cat <<EOF | kubectl apply -f -
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ${USER}-${HOSTNAME}-whoami
+  namespace: default
+spec:
+  entryPoints:
+    - websecure
+  routes:
+  - match: Host(\`$DOMAIN\`)
+    kind: Rule
+    services:
+    - name: ${USER}-${HOSTNAME}-whoami
+      port: 8080
+  tls:
+    certResolver: default
+EOF
+```
+
+Now you should be able to access the public URL for the service at the domain
+you chose (https://whoami2.example.com).
