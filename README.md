@@ -1,15 +1,19 @@
 # k3s-wireguard-proxy
 
-Access your private kubernetes resources through wireguard (VPN) and/or expose
-your local services to the cluster and/or internet.
+Publish your local running services to the internet through a
+[wireguard](https://www.wireguard.com/) VPN connected to a public facing
+kubernetes cluster running [Traefik](https://docs.traefik.io/).
 
 You can use this like a self-hosted ngrok.
 
 Due to the security concerns in running this, I have resisted the urge to
 automate this with a fancy wrapper script. Instead, I invite the active reader
-to follow along and understand the details outlined here.
+to follow along and understand the details outlined here. It will take about
+5-10 minutes if you're already familiar with the basic concepts.
 
 ## How it works
+
+![Network Diagram](diagram.png)
 
 Following this guide you will:
 
@@ -24,9 +28,11 @@ Following this guide you will:
  * Create a wireguard network interface on your local workstation.
  * Maintain your connection (enabled on boot) through
    [systemd-networkd](https://wiki.archlinux.org/index.php/Systemd-networkd)
- * Create a Service and IngressRoutes that forwards from your internet domain to
-   your local workstation, running a web server, punching through NAT and
-   firewalls.
+ * Create a simple web service running on your workstation/laptop.
+ * Create a Service and IngressRoutes through
+   [Traefik](https://docs.traefik.io/), which forwards from your internet domain
+   to your local workstation, through the VPN, and exposing your local service
+   to the internet.
 
 ## Clone this repository on your workstation/laptop
 
@@ -74,14 +80,7 @@ Install kubectl:
  * Prefer your os packages:
    * Arch: `sudo pacman -S kubectl`
    * Ubuntu and Other OS: [See docs](https://kubernetes.io/docs/tasks/tools/install-kubectl/#install-using-native-package-management)
- * Or this way:
-```
-TMP=$(mktemp)
-curl -L "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl" > $TMP
-sudo install $TMP /usr/local/bin/kubectl
-rm $TMP
-```
-   
+
 [Install k3sup](https://github.com/alexellis/k3sup#download-k3sup-tldr)
 
 ```
@@ -108,9 +107,12 @@ kubectl apply -f https://raw.githubusercontent.com/squat/kilo/master/manifests/k
 
 ## Connect local wireguard client to cluster
 
-First make sure you are running a firewall locally, in order to to deny incoming
-connections by default. Enabling the default `ufw` settings will do this for
-you, but may have to [install ufw](https://wiki.archlinux.org/index.php/Uncomplicated_Firewall) first, and then you must `enable` it:
+First, make sure you are running a firewall locally. This is in order to to deny
+incoming connections by default. Enabling the default `ufw` settings will do
+this for you, but you may have to [install
+ufw](https://wiki.archlinux.org/index.php/Uncomplicated_Firewall) first.
+
+After you install ufw, make sure to enable it:
 
 ```
 sudo systemctl enable --now ufw
@@ -118,9 +120,8 @@ sudo ufw enable
 ```
 
 The default settings will block most incoming ports, but will still allow SSH.
-If you don't need SSH, run `sudo ufw deny ssh`. For any ports you need to open,
-you could run `sudo ufw allow [PORT]`, or to restrict based upon origin, you
-could run `sudo ufw allow [PORT] from [ADDRESS]`
+If you don't need SSH, run `sudo ufw deny ssh`. For any ports you need to open
+generally, you could run `sudo ufw allow [PORT]`.
 
 Create a wireguard keypair for your workstation/laptop:
 ```
@@ -317,16 +318,16 @@ go get github.com/containous/whoami
 go install github.com/containous/whoami
 ```
 
-Open the firewall to allow access to port `8080`:
+Open the firewall to allow access to port `8080` only from the VPN:
 
 ```
-sudo ufw allow 8080 -name local
+sudo ufw allow from 10.4.0.1/32 to any port 8080
 ```
 
-In another terminal/tab, start the service (Ctrl-c to quit) :
+start the service in the background:
 
 ```
-whoami -port 8080
+whoami -port 8080 -name local &
 ```
 
 You can test it works locally by opening your browser to
@@ -384,3 +385,12 @@ EOF
 
 Now you should be able to access the public URL for the service at the domain
 you chose (https://whoami2.example.com).
+
+## Alternative software
+
+You may also like to check out these projects which do roughly the same thing
+but with different tools:
+
+ * [inlets](https://github.com/inlets/inlets)
+ * [sish](https://github.com/antoniomika/sish)
+ * [ngrok](https://ngrok.com/)
