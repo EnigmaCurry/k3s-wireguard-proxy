@@ -1,9 +1,0 @@
-apiVersion: kilo.squat.ai/v1alpha1
-kind: Peer
-metadata:
-  name: squat
-spec:
-  allowedIPs:
-  - 10.5.0.1/32
-  publicKey: GY5aT1N9dTR/nJnT1N2f4ClZWVj0jOAld0r8ysWLyjg=
-  persistentKeepalive: 10

@@ -45,7 +45,7 @@ spec:
         - --api
         - --log.level=INFO
         - --api.insecure=false
-        - --api.dashboard=true
+        - --api.dashboard=false
         - --accesslog
         - --global.checknewversion=true
         - --entryPoints.web.address=:80

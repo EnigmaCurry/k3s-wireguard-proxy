@@ -16,10 +16,3 @@ patchesJson6902:
     namespace: kube-system
     name: traefik
   path: 030-traefik-daemonset-patch.yaml
-- target:
-    group: "traefik.containo.us"
-    version: "v1alpha1"
-    kind: IngressRoute
-    name: traefik-dashboard
-    namespace: kube-system
-  path: 040-traefik-dashboard-patch.yaml
