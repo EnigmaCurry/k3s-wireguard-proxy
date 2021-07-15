@@ -1,5 +1,7 @@
 # k3s-wireguard-proxy
 
+*warning: prototype working but left unfinished.
+
 Publish your local running services to the internet through a
 [wireguard](https://www.wireguard.com/) VPN connected to a public facing
 kubernetes cluster running [Traefik](https://docs.traefik.io/).
